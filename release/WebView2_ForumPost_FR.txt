@@ -1,0 +1,92 @@
+TITRE DU SUJET (à copier comme titre sur le forum)
+================================================================
+[UDF] WebView2 — un navigateur Chromium moderne dans une GUI AutoIt (AutoIt pur, aucune DLL à livrer)
+
+CORPS DU MESSAGE (version française, pour relecture ; publier la version anglaise)
+================================================================
+
+[b]WebView2[/b] intègre le moteur de rendu Microsoft Edge (Chromium) dans une fenêtre AutoIt et le
+pilote depuis AutoIt seul. L'UDF parle au runtime WebView2 déjà présent dans Windows via ses
+interfaces COM : [b]pas de SDK, pas de DLL à livrer, pas de binaire conteneur, pas
+d'enregistrement, pas de téléchargement[/b]. Seuls kernel32, ole32, user32 et la DLL système
+[i]EmbeddedBrowserWebView.dll[/i] sont utilisés.
+
+[b]Fonctionnalités[/b]
+[list]
+[*]Jusqu'à 16 vues simultanées, chacune une vraie fenêtre enfant de votre GUI, redimensionnée par [i]_WV2_SetBounds[/i] / [i]_WV2_FitToParent[/i]
+[*]Navigation, historique, rechargement/arrêt, titre, source, zoom (0,2 à 10), visibilité, filtre de navigation par vue
+[*][i]_WV2_ExecuteScript[/i] renvoie le résultat de n'importe quelle expression JavaScript ; [i]_WV2_AddScriptToExecuteOnDocumentCreated[/i] injecte un script avant la première ligne de la page
+[*]Pont de messages dans les deux sens : [i]_WV2_PostWebMessage[/i] / [i]_WV2_PostWebMessageAsString[/i], côté page l'API standard [i]chrome.webview[/i]
+[*]File d'événements : navigation début/fin, messages de la page, demandes de nouvelle fenêtre, titre, historique, crash d'un processus, téléchargements — lue par [i]_WV2_GetEvent[/i] ou attendue par [i]_WV2_WaitEvent[/i]
+[*]9 réglages de la page ([i]IsScriptEnabled[/i], [i]AreDevToolsEnabled[/i], [i]AreDefaultContextMenusEnabled[/i], …)
+[*]Capture PNG / JPEG de la page, et un [b]vrai export PDF[/b]
+[*]Maîtrise des téléchargements : dossier de destination choisi, refus par expression régulière
+[*]Vidage du pot à cookies du profil à la demande
+[*]Valeurs d'échec explicites avec @error ([i]$WV2_ERR_*[/i]) et l'HRESULT brut dans @extended ; message lisible par [i]_WV2_GetLastErrorMessage()[/i]
+[*]Ni MsgBox, ni ConsoleWrite, ni Exit dans l'UDF
+[/list]
+
+[b]Pourquoi pas l'UDF IE, ni CEF ?[/b]
+[list]
+[*][i]_IECreate[/i] pilote Internet Explorer 11 : pas de CSS moderne, pas de JavaScript actuel, pas de pont, pas de PDF.
+[*]CEF et consorts sont excellents et lourds : vous livrez et mettez à jour un navigateur vous-même.
+[*]Ici le navigateur est celui que Windows exécute déjà : votre distribution grossit d'un fichier .au3.
+[/list]
+
+[b]Travaux antérieurs, et ce qui est nouveau ici[/b]
+Intégrer WebView2 dans AutoIt n'est pas nouveau, et cet UDF ne prétend pas l'avoir inventé :
+[list]
+[*]Le fil du forum [url=https://www.autoitscript.com/forum/topic/204362-microsoft-edge-webview2/]Microsoft Edge - WebView2[/url] (sujet 204362) est là où cela a été exploré pour la première fois ; ces extraits chargent [i]WebView2Loader-x86.dll[/i] / [i]WebView2Loader-x64.dll[/i] à côté du script.
+[*][url=https://github.com/Ralle1976/Autoit-WebView2-UDF]Ralle1976/Autoit-WebView2-UDF[/url] (MIT) est le paquet le plus complet : les DLL du loader, une DLL d'assistance, 14 fonctions, un pont par interrogation périodique, et une bibliothèque de composants React par-dessus.
+[*][i]OrdoWebView2.ocx[/i] enveloppe le même moteur dans un contrôle ActiveX tiers que son propre programme d'installation enregistre.
+[/list]
+Ce qui est différent ici :
+[list]
+[*][b]Rien à livrer, rien à enregistrer.[/b] Aucune DLL de loader n'est appelée : l'environnement est créé par le point d'entrée exporté du runtime lui-même ([i]CreateWebViewEnvironmentWithOptionsInternal[/i] dans [i]EmbeddedBrowserWebView.dll[/i]), atteint par [i]DllCall[/i]. La distribution tient en un fichier .au3.
+[*][b]Les événements sont des événements.[/b] De vrais sinks COM pour la navigation, les messages de la page, le titre, l'historique, la chute du processus de rendu et les téléchargements, mis en file pour l'hôte — pas une boucle d'interrogation du DOM ni d'un fichier.
+[*][b]Toute la surface, pas un sous-ensemble.[/b] 40 fonctions : résultats JavaScript, scripts au démarrage du document, réglages de la page, captures PNG/JPEG, export PDF, dossier et refus des téléchargements par expression régulière, cookies.
+[*][b]Un diagnostic silencieux.[/b] Chaque appel renvoie une valeur et documente son @error ; l'HRESULT brut voyage dans @extended. Ni MsgBox, ni ConsoleWrite, ni Exit dans l'UDF.
+[/list]
+La contrepartie honnête : [i]CreateWebViewEnvironmentWithOptionsInternal[/i] est un export
+[b]non documenté[/b] — c'est exactement l'appel que fait la DLL de loader officielle, et il n'a pas
+bougé depuis des années, mais il n'est pas gelé par contrat. Si un futur runtime le déplaçait, seule la
+création de l'environnement dans [i]_WV2_Create[/i] devrait passer par un loader livré ; les 39 autres
+fonctions n'y touchent pas. C'est aussi écrit dans le README, section [i]Known limits[/i].
+
+[b]Exemple[/b] — voir WebView2_ForumPost.txt (version anglaise) pour le code complet, et le README du
+kit pour la table des 40 fonctions, les 12 codes d'erreur et les limites connues.
+
+[b]Auto-test[/b]
+Le même fichier d'exemple lancé avec [b]/auto[/b] devient une suite de 111 vérifications sur toute
+l'API, sans réseau (pages file:// et mémoire), sans résidu sur disque, code de sortie 0 quand tout
+passe. Validé en x86 ([b]AutoIt3.exe[/b]) et en x64 ([b]AutoIt3_x64.exe[/b]).
+
+Le chemin 64 bits mérite un mot : [i]ICoreWebView2Controller::put_Bounds[/i] déclare son RECT par
+valeur, mais le runtime x64 lit l'[b]adresse[/b] de ces 16 octets — toute autre forme de l'argument
+fait planter le processus. Cet appel est donc dispatché par la vtable en 64 bits.
+
+[b]Fichiers du kit[/b] : WebView2.au3, WebView2_Example_GUI.au3, WebView2_Example_GUI.png,
+WebView2_Quick_Start.pdf (tutoriel débutant de 18 pages, quatre programmes commentés, livrés à côté
+de l'UDF), WebView2_Developer_Guide.md / .pdf, README.md, LICENSE (archive
+WebView2_v0.3.0.zip).
+
+[b]Licence :[/b] MIT, copyright (c) 2026 Numeric1. Utilisez-le, distribuez-le, vendez ce que vous
+construisez avec — conservez le fichier [i]LICENSE[/i] et les lignes [i]Author[/i] / [i]License[/i] des
+en-têtes source, c'est ce qui garde mon nom sur le code. WebView2 appartient à Microsoft : les
+identifiants d'interface et la disposition de la vtable suivent leur SDK (MIT), aucun code Microsoft
+n'est reproduit ici.
+
+[b]Prérequis[/b] : AutoIt 3.3.16+ (x86/x64), Windows 10 ou plus récent avec le runtime Microsoft Edge
+WebView2 (préinstallé sur Windows 11, livré par la mise à jour Edge sur Windows 10). L'UDF le détecte
+avec [i]_WV2_GetRuntimePath()[/i] et renvoie [i]$WV2_ERR_RUNTIME[/i] s'il manque — il n'installe jamais rien.
+
+[b]Limites connues :[/b] 16 vues simultanées, un thread par vue, une page d'origine nulle (file://,
+NavigateToString) ne peut pas porter de cookie, Chromium n'autorise que le premier téléchargement
+automatique d'une page, [i]_WV2_ClearCookies[/i] ne vide que les cookies — cache, historique et
+localStorage exigeraient [i]ICoreWebView2Profile2::ClearBrowsingData[/i] — et la création de
+l'environnement sans loader repose sur l'export non documenté
+[i]CreateWebViewEnvironmentWithOptionsInternal[/i], confiné à [i]_WV2_Create[/i].
+
+Avis et suggestions bienvenus.
+
+[b]Auteur :[/b] Numeric1

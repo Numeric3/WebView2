@@ -1,0 +1,193 @@
+TOPIC TITLE (copy this line as the topic title on the forum)
+================================================================
+[UDF] WebView2 — a modern Chromium browser inside your AutoIt GUI (pure AutoIt, no DLL to ship)
+
+TOPIC BODY (paste everything below into the post body)
+================================================================
+
+[b]WebView2[/b] embeds the Microsoft Edge (Chromium) rendering engine in an AutoIt window and drives
+it from AutoIt alone. The UDF talks to the WebView2 runtime that Windows already provides, through
+its own COM interfaces: [b]no SDK, no DLL to ship, no wrapper binary, no registration, no
+download[/b]. Only kernel32, ole32, user32 and the system [i]EmbeddedBrowserWebView.dll[/i] are touched.
+
+This is the "modern browser in the GUI" that the IE-based UDFs cannot be any more: current
+JavaScript, CSS, wasm, PDF export, a real two-way bridge between AutoIt and the page.
+
+[b]New to it?[/b] The 18-page [i]WebView2_Quick_Start.pdf[/i] in the zip takes you from an empty
+script to a browser you can drive: four complete programs, every line commented, no COM and no
+headers. They sit next to [i]WebView2.au3[/i] and run as printed. The developer guide is there when you
+want to know what runs underneath.
+
+[b]Features[/b]
+[list]
+[*]Up to 16 views at a time, each one a real child window of your own GUI, resized with [i]_WV2_SetBounds[/i] / [i]_WV2_FitToParent[/i]
+[*]Navigation, history, reload/stop, title, source, zoom (0.2 to 10), visibility, per-view navigation filter
+[*][i]_WV2_ExecuteScript[/i] returns the result of any JavaScript expression; [i]_WV2_AddScriptToExecuteOnDocumentCreated[/i] injects before the page runs a line
+[*]Two-way message bridge: [i]_WV2_PostWebMessage[/i] / [i]_WV2_PostWebMessageAsString[/i] both ways, with [i]chrome.webview[/i] on the page side
+[*]Event queue: navigation starting/completed, web messages, new-window requests, title, history, renderer crashes, downloads — drained with [i]_WV2_GetEvent[/i] or waited for with [i]_WV2_WaitEvent[/i]
+[*]9 page settings ([i]IsScriptEnabled[/i], [i]AreDevToolsEnabled[/i], [i]AreDefaultContextMenusEnabled[/i], ...)
+[*]PNG / JPEG snapshot of the page, and a real [b]PDF export[/b] of it
+[*]Download control: pick the landing folder, refuse downloads by regular expression
+[*]Cookie jar of the profile cleared on demand
+[*]Explicit failure values plus @error ([i]$WV2_ERR_*[/i]) and the raw HRESULT in @extended; readable text via [i]_WV2_GetLastErrorMessage()[/i]
+[*]No MsgBox, no ConsoleWrite, no Exit inside the UDF
+[/list]
+
+[b]Why not the IE UDF, or CEF?[/b]
+[list]
+[*][i]_IECreate[/i] drives Internet Explorer 11: no modern CSS, no current JavaScript, no bridge, no PDF.
+[*]CEF and friends are excellent and heavy: you bundle and update a browser yourself.
+[*]Here the browser is the one Windows already runs, so your distribution grows by one .au3 file.
+[/list]
+
+[b]Related work, and what is new here[/b]
+Embedding WebView2 in AutoIt is not new, and this UDF does not claim to have invented it:
+[list]
+[*]The forum thread [url=https://www.autoitscript.com/forum/topic/204362-microsoft-edge-webview2/]Microsoft Edge - WebView2[/url] (topic 204362) is where it was first explored; those snippets load [i]WebView2Loader-x86.dll[/i] / [i]WebView2Loader-x64.dll[/i] next to the script.
+[*][url=https://github.com/Ralle1976/Autoit-WebView2-UDF]Ralle1976/Autoit-WebView2-UDF[/url] (MIT) is the most complete package: the loader DLLs, a helper DLL, 14 functions, a polling bridge, and a React component library on top.
+[*][i]OrdoWebView2.ocx[/i] wraps the same engine in a third-party ActiveX control that its own setup installs and registers.
+[/list]
+What is different in this one:
+[list]
+[*][b]Nothing to ship, nothing to register.[/b] No loader DLL is called: the environment is created through the runtime's own exported entry point ([i]CreateWebViewEnvironmentWithOptionsInternal[/i] in [i]EmbeddedBrowserWebView.dll[/i]), reached with [i]DllCall[/i]. The distribution is one .au3 file.
+[*][b]Events are events.[/b] Real COM event sinks for navigation, page messages, title, history, renderer failure and downloads, queued for the host — not a polling loop over the DOM or a file.
+[*][b]The whole surface, not a subset.[/b] 40 functions: JavaScript results, document-start scripts, page settings, PNG/JPEG snapshots, PDF export, download folder and regex refusal, cookies.
+[*][b]Diagnostics that stay silent.[/b] Every call returns a value and documents its @error; the raw HRESULT travels in @extended. No MsgBox, no ConsoleWrite, no Exit inside the UDF.
+[/list]
+The honest counterpart: [i]CreateWebViewEnvironmentWithOptionsInternal[/i] is an [b]undocumented[/b]
+export — it is the very call the official loader DLL makes, and it has not moved in years, but it is
+not contractually frozen. If a future runtime ever changed it, only the environment creation inside
+[i]_WV2_Create[/i] would have to go through a shipped loader instead; the other 39 functions do not
+touch it. That is written in the README under [i]Known limits[/i] as well.
+
+[b]Quick example[/b]
+[code]#include "WebView2.au3"
+
+Global $hGui = GUICreate("My app", 900, 600)
+GUISetState(@SW_SHOW, $hGui)
+
+If _WV2_GetRuntimePath() = "" Then
+    MsgBox(48, "WebView2", "The WebView2 runtime is not installed.")
+    Exit
+EndIf
+
+Local $iWV = _WV2_Create($hGui)                     ; covers the whole client area
+If $iWV = 0 Then
+    MsgBox(48, "WebView2", "Create failed: " & _WV2_GetLastErrorMessage())
+    Exit
+EndIf
+
+_WV2_Navigate($iWV, "https://www.autoitscript.com/")
+If _WV2_WaitNavigation($iWV) Then                   ; pumps messages, the GUI stays alive
+    Local $sTitle
+    _WV2_GetTitle($iWV, $sTitle)
+    ConsoleWrite($sTitle & @CRLF)
+EndIf
+
+While GUIGetMsg() <> $GUI_EVENT_CLOSE
+    Sleep(50)
+WEnd
+
+_WV2_Destroy($iWV)                                  ; every COM reference released[/code]
+
+[b]AutoIt and the page talking to each other[/b]
+[code]; host -> page
+_WV2_PostWebMessageAsString($iWV, "ping")
+; page -> host, standard WebView2 API inside the document
+;   window.chrome.webview.postMessage("pong")
+;   window.chrome.webview.addEventListener("message", e => ...)
+
+_WV2_EnableEvent($iWV, $WV2_EVENT_WEB_MESSAGE)
+Local $sData = "", $iValue = 0
+If _WV2_WaitEvent($iWV, $WV2_EVENT_WEB_MESSAGE, 5000, $sData, $iValue) Then
+    ConsoleWrite("the page says " & $sData & @CRLF)
+EndIf
+
+; JavaScript out of the page, as JSON text
+Local $sResult
+_WV2_ExecuteScript($iWV, "document.title", $sResult)
+
+; a PDF of the page, and a PNG of it
+_WV2_PrintToPdf($iWV, @ScriptDir & "\page.pdf")
+_WV2_CapturePreview($iWV, @ScriptDir & "\page.png")[/code]
+
+[b]Function reference[/b] (40 public functions)
+[code]_WV2_GetRuntimePath()                          ; locate the runtime, never install it
+_WV2_Create($hParent, $iLeft, $iTop, $iWidth, $iHeight, $sUserDataFolder, $iTimeoutMs)
+_WV2_Destroy($iHandle) / _WV2_IsReady($iHandle)
+_WV2_Navigate($iHandle, $sUrl) / _WV2_NavigateToString($iHandle, $sHtml)
+_WV2_WaitNavigation($iHandle, $iTimeoutMs)      ; web error id in @extended
+_WV2_IsNavigationComplete($iHandle) / _WV2_Reload / _WV2_Stop
+_WV2_GoBack / _WV2_GoForward / _WV2_CanGoBack / _WV2_CanGoForward
+_WV2_GetTitle / _WV2_GetSource / _WV2_GetBrowserVersion
+_WV2_SetNavigationFilter($iHandle, $sRegEx)
+_WV2_SetBounds / _WV2_GetBounds / _WV2_FitToParent / _WV2_SetVisible
+_WV2_SetZoom($iHandle, $fZoom) / _WV2_GetZoom($iHandle)
+_WV2_ExecuteScript($iHandle, $sScript, ByRef $sResult, $iTimeoutMs)
+_WV2_AddScriptToExecuteOnDocumentCreated($iHandle, $sScript, ByRef $sId)
+_WV2_RemoveScriptToExecuteOnDocumentCreated($iHandle, $sId)
+_WV2_PostWebMessage($iHandle, $sJson) / _WV2_PostWebMessageAsString($iHandle, $sText)
+_WV2_EnableEvent($iHandle, $iEvent, $bEnable)   ; $WV2_EVENT_*
+_WV2_GetEvent($iHandle, ByRef $sData, ByRef $iValue)
+_WV2_WaitEvent($iHandle, $iEvent, $iTimeoutMs, ByRef $sData, ByRef $iValue)
+_WV2_SettingRead($iHandle, $sName) / _WV2_SettingWrite($iHandle, $sName, $bValue)
+_WV2_CapturePreview($iHandle, $sFile, $iFormat, $iTimeoutMs)   ; $WV2_IMAGE_PNG / _JPEG
+_WV2_PrintToPdf($iHandle, $sFile, $iTimeoutMs)
+_WV2_SetDownloadFolder($iHandle, $sFolder) / _WV2_SetDownloadFilter($iHandle, $sRegEx)
+_WV2_ClearCookies($iHandle)
+_WV2_GetLastErrorMessage()[/code]
+
+[b]Error codes[/b] (@error, raw HRESULT always in @extended)
+[code]$WV2_ERR_NONE        (0)  success                 $WV2_ERR_NOT_READY  (7)  view not usable yet
+$WV2_ERR_HANDLE      (1)  invalid/destroyed handle  $WV2_ERR_CALL       (8)  method returned a failure
+$WV2_ERR_ARG         (2)  bad argument              $WV2_ERR_TIMEOUT    (9)  runtime answered too late
+$WV2_ERR_RUNTIME     (3)  runtime not installed     $WV2_ERR_FULL      (10)  16 live instances already
+$WV2_ERR_COM         (4)  COM / wrapper failure     $WV2_ERR_FILE      (11)  file could not be written
+$WV2_ERR_ENV         (5)  environment failed
+$WV2_ERR_CONTROLLER  (6)  controller failed[/code]
+
+[b]Demo / self-test[/b]
+[center](attach WebView2_Example_GUI.png here, then click the Insert button on the attachment)[/center]
+[i]WebView2_Example_GUI.au3[/i] is a small browser: address bar, back / forward / reload / stop, a
+bottom band with A- / A+ zoom, [b]JS[/b] (runs a script and shows the answer), [b]Shot[/b] (PNG of the
+page), [b]PDF[/b] (prints it), and a status line reporting what the view publishes — title changes,
+user navigations, page messages (answered back), [i]target=_blank[/i] links reopened in place,
+downloads raised by the page, a failed renderer process.
+
+Run the same file with [b]/auto[/b] and it becomes a headless test suite instead: 111 checks over the
+whole API, no network needed (it drives file:// and in-memory pages), nothing left on disk, exit code
+0 when everything passes.
+
+[code]AutoIt3.exe WebView2_Example_GUI.au3 /auto
+passed=111 failed=0[/code]
+
+Tested on AutoIt 3.3.16.1 on [b]both x86 (AutoIt3.exe) and x64 (AutoIt3_x64.exe)[/b]. The 64-bit path is
+worth a word: [i]ICoreWebView2Controller::put_Bounds[/i] declares its RECT by value, and the x64 runtime
+reads the [b]address[/b] of those 16 bytes instead — every other shape of the argument crashes the
+process, so that one call is dispatched through the vtable on 64 bits.
+
+[b]Downloads[/b]
+(attach WebView2_v0.3.0.zip here)
+WebView2_v0.3.0.zip — UDF, GUI example / test suite, quick start booklet (PDF) whose four programs
+sit next to the UDF, developer guide (Markdown + PDF), README, screenshot, LICENSE.
+
+[b]License:[/b] MIT, copyright (c) 2026 Numeric1. Use it, ship it, sell what you build with it — keep
+the [i]LICENSE[/i] file and the [i]Author[/i] / [i]License[/i] lines of the source headers, which is
+what keeps my name on the code. WebView2 itself is Microsoft's: the interface identifiers and vtable
+layout follow their SDK (MIT), no Microsoft code is reproduced here.
+
+[b]Requirements:[/b] AutoIt 3.3.16+ (x86/x64), Windows 10 or later with the Microsoft Edge WebView2
+Runtime (preinstalled on Windows 11, delivered with the Edge update on Windows 10). The UDF detects it
+with [i]_WV2_GetRuntimePath()[/i] and reports [i]$WV2_ERR_RUNTIME[/i] when it is missing — it never
+installs anything.
+
+[b]Known limits:[/b] 16 concurrent views, one thread per view, a page with a null origin (file://,
+NavigateToString) cannot carry a cookie, Chromium only allows the first automatic download of a page,
+[i]_WV2_ClearCookies[/i] clears cookies only — cache, history and localStorage would need
+[i]ICoreWebView2Profile2::ClearBrowsingData[/i] — and the loaderless environment creation relies on
+the undocumented [i]CreateWebViewEnvironmentWithOptionsInternal[/i] export, confined to
+[i]_WV2_Create[/i].
+
+Feedback and suggestions are welcome.
+
+[b]Author:[/b] Numeric1
